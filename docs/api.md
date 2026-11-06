@@ -292,6 +292,7 @@ whether `open-app` works for the phone (the app's `mirroring.app_windows` featur
 | `POST /v1/notifications/rules` | `{ "app", "rule": "show"\|"quiet"\|"hidden" }` and/or `{ "historyEnabled" }` | Sets an app's rule, and/or turns history on or off. |
 | `POST /v1/notifications/copy-code` | `{ "code" }` | Copies a one-time code to the PC clipboard. |
 | `GET /v1/notifications/theme` | | The app's look: `{ theme, seed, colorMode, amoled, systemDark, wallpaperColors, phoneColors }` (the JSON its own Theme reads), so a tool can paint like it. |
+| `POST /v1/notifications/mirror` | `{ "device"? }` | Asks the phone for its screen (the Home page's "Mirror screen"). |
 | `POST /v1/notifications/open-app` | `{ "app", "appName"?, "device"? }` | Opens the phone's app in a window on this PC (app windows). |
 
 `device` defaults to the notification's phone, or else the first online phone. Errors: `400` with `invalid_json`,

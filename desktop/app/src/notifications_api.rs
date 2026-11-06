@@ -431,6 +431,10 @@ pub async fn route(method: &str, path: &str, query: &HashMap<String, String>, bo
             }
             Err(e) => e,
         },
+        ("POST", "/mirror") => match parse::<OpenAppPayload>(body) {
+            Ok(p) => mirror_screen(p.device.as_deref()),
+            Err(e) => e,
+        },
         ("POST", "/open-app") => match parse::<OpenAppPayload>(body) {
             Ok(p) => open_app(p),
             Err(e) => e,
@@ -478,6 +482,18 @@ fn rule(p: RulePayload) -> Reply {
     if let Some(on) = p.history_enabled {
         core_host::host().hub.update(|s| s.set_history_enabled(on));
     }
+    ok()
+}
+
+/// Asks the phone for its screen (the "Mirror screen" tile of the app's Home page).
+fn mirror_screen(device: Option<&str>) -> Reply {
+    let Some(device) = target(device, None).and_then(|d| d.parse::<DeviceId>().ok()) else {
+        return not_found("no_device");
+    };
+    #[cfg(not(test))]
+    crate::mirror::start(device);
+    #[cfg(test)]
+    let _ = device;
     ok()
 }
 
