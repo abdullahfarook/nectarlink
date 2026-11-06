@@ -129,14 +129,31 @@ fn row_json(row: &Row) -> Value {
 
 /// The feed: rows, the count the app shows, Undo and the history switch.
 fn feed(device: Option<DeviceId>) -> Value {
-    let (rows, undo, history, online) = core_host::host().hub.read(|s: &AppState| {
-        let online: HashMap<String, bool> = s
-            .devices
-            .iter()
-            .map(|d| (d.id.to_string(), matches!(d.link, LinkState::Online { .. })))
-            .collect();
-        (build_rows(s), s.last_dismissed_label.clone(), s.history_enabled, online)
-    });
+    let (rows, undo, history, online, history_count, can_open_app) =
+        core_host::host().hub.read(|s: &AppState| {
+            let online: HashMap<String, bool> = s
+                .devices
+                .iter()
+                .map(|d| (d.id.to_string(), matches!(d.link, LinkState::Online { .. })))
+                .collect();
+            let history_count =
+                s.history.iter().filter(|h| s.app_rule(&h.notification.app) != AppRule::Hidden).count();
+            // Clicking a card opens the phone's app in a window of its own, when the app says that works for this phone.
+            let can_open_app = s.devices.iter().filter(|d| device.is_none_or(|id| d.id == id)).any(|d| {
+                matches!(
+                    s.matrices.get(&d.id).and_then(|m| m.state("mirroring.app_windows")),
+                    Some(nectarlink_core::FeatureState::Available)
+                )
+            });
+            (
+                build_rows(s),
+                s.last_dismissed_label.clone(),
+                s.history_enabled,
+                online,
+                history_count,
+                can_open_app,
+            )
+        });
     let rows: Vec<&Row> = rows.iter().filter(|r| device.is_none_or(|d| r.view.device == d)).collect();
     // Like the app: each group counts once for all its members.
     let count: i32 = rows.iter().filter(|r| r.group_index == 0).map(|r| r.group_count).sum();
@@ -146,6 +163,8 @@ fn feed(device: Option<DeviceId>) -> Value {
         "count": count,
         "undoLabel": undo,
         "historyEnabled": history,
+        "historyCount": history_count,
+        "canOpenApp": can_open_app,
         "online": online,
         "items": rows.iter().map(|r| row_json(r)).collect::<Vec<_>>(),
     })
@@ -239,6 +258,36 @@ fn rules() -> Value {
     })
 }
 
+/// What a tool needs to paint like the app: the theme settings and the color schemes the app derives
+/// from the wallpaper and from paired phones (the same JSON its own Theme reads).
+async fn theme() -> Value {
+    #[cfg(not(test))]
+    {
+        let settings = crate::settings::Settings::load(&core_host::host().data_dir);
+        let wallpaper = tokio::task::spawn_blocking(|| {
+            crate::win::wallpaper::seed().map(|seed| crate::palette::scheme_json(seed).to_string())
+        })
+        .await
+        .ok()
+        .flatten();
+        let phones = core_host::host().hub.read(|s| crate::bridge::app::phone_colors_json(&s.devices));
+        json!({
+            "ok": true,
+            "theme": serde_json::to_value(settings.theme).unwrap_or(Value::Null),
+            "seed": settings.seed,
+            "colorMode": serde_json::to_value(settings.color_mode).unwrap_or(Value::Null),
+            "amoled": settings.amoled,
+            "systemDark": crate::win::system_dark(),
+            "wallpaperColors": wallpaper.unwrap_or_default(),
+            "phoneColors": phones,
+        })
+    }
+    #[cfg(test)]
+    {
+        json!({ "ok": true })
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct ActionPayload {
     #[serde(default)]
@@ -313,6 +362,7 @@ pub async fn route(method: &str, path: &str, query: &HashMap<String, String>, bo
         }
         ("GET", "/history") => (200, "OK", history(query)),
         ("GET", "/rules") => (200, "OK", rules()),
+        ("GET", "/theme") => (200, "OK", theme().await),
         ("POST", "/action") => match parse::<ActionPayload>(body) {
             Ok(p) => action(p),
             Err(e) => e,

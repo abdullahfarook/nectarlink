@@ -258,7 +258,7 @@ groups, per-app rules and the count match the window.
 
 ```json
 {
-  "ok": true, "rev": 42, "count": 3, "undoLabel": "Dismissed from WhatsApp", "historyEnabled": true,
+  "ok": true, "rev": 42, "count": 3, "undoLabel": "Dismissed from WhatsApp", "historyEnabled": true, "historyCount": 25, "canOpenApp": false,
   "online": { "<device id>": true },
   "items": [{
     "deviceId": "a1b2c3...", "deviceName": "Pixel 9 Pro", "key": "0|com.whatsapp|1|null|10123",
@@ -274,7 +274,8 @@ groups, per-app rules and the count match the window.
 
 `rev` goes up with every change. Pass `since=<rev>&wait=<seconds>` (at most 55) to wait for news: the call returns as soon
 as `rev` changes, or after `wait` seconds with the same feed. `count` is what the app's header shows (each group counts all
-its members). Hidden apps are left out. `iconUrl` and `imageUrl` are `file://` URLs on this PC.
+its members). Hidden apps are left out. `historyCount` is how many dismissed notifications the history holds; `canOpenApp` says
+whether `open-app` works for the phone (the app's `mirroring.app_windows` feature is available). `iconUrl` and `imageUrl` are `file://` URLs on this PC.
 
 | Request | Body | Does |
 |---|---|---|
@@ -290,6 +291,7 @@ its members). Hidden apps are left out. `iconUrl` and `imageUrl` are `file://` U
 | `GET /v1/notifications/rules` | | `{ "historyEnabled", "apps": [{ "app", "name", "icon", "rule" }] }` |
 | `POST /v1/notifications/rules` | `{ "app", "rule": "show"\|"quiet"\|"hidden" }` and/or `{ "historyEnabled" }` | Sets an app's rule, and/or turns history on or off. |
 | `POST /v1/notifications/copy-code` | `{ "code" }` | Copies a one-time code to the PC clipboard. |
+| `GET /v1/notifications/theme` | | The app's look: `{ theme, seed, colorMode, amoled, systemDark, wallpaperColors, phoneColors }` (the JSON its own Theme reads), so a tool can paint like it. |
 | `POST /v1/notifications/open-app` | `{ "app", "appName"?, "device"? }` | Opens the phone's app in a window on this PC (app windows). |
 
 `device` defaults to the notification's phone, or else the first online phone. Errors: `400` with `invalid_json`,

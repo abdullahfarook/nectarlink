@@ -1081,7 +1081,7 @@ fn refresh_wallpaper_colors(qt: CxxQtThread<qobject::AppController>) {
     }
 }
 
-fn phone_colors_json(devices: &[crate::state::DeviceView]) -> String {
+pub(crate) fn phone_colors_json(devices: &[crate::state::DeviceView]) -> String {
     // One entry per name. When a phone was paired again (reinstalled, reset), an
     // old entry can share its name: the connected, most recently paired one
     // speaks for it, so its live colors (wallpaper, or the artwork playing) win.
