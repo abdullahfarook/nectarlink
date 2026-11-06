@@ -2,7 +2,6 @@
 //! `NotificationList`: phone notifications (newest first) as a Qt list
 //! model, plus the commands QML runs on them.
 
-use crate::i18n::tr;
 use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
@@ -159,23 +158,23 @@ pub mod qobject {
 
 /// A row: the notification plus what the UI needs to show it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Row {
-    view: NotificationView,
-    device_name: String,
+pub(crate) struct Row {
+    pub(crate) view: NotificationView,
+    pub(crate) device_name: String,
     /// A file URL, or "" (the UI then shows the app's initial).
-    icon_url: String,
+    pub(crate) icon_url: String,
     /// The notification's picture as a file URL, or "".
-    image_url: String,
+    pub(crate) image_url: String,
     /// Replies sent from this PC.
-    replies: Vec<SentReply>,
+    pub(crate) replies: Vec<SentReply>,
     /// Total notifications in this `(device, app)` group (`1` if ungrouped or live).
-    group_count: i32,
+    pub(crate) group_count: i32,
     /// Index within the `(device, app)` group (`0` is the newest / lead item).
-    group_index: i32,
+    pub(crate) group_index: i32,
     /// Whether this `(device, app)` group is currently expanded.
-    group_expanded: bool,
+    pub(crate) group_expanded: bool,
     /// Short preview of older notifications in the group when collapsed.
-    group_summary: String,
+    pub(crate) group_summary: String,
 }
 
 #[derive(Default)]
@@ -288,7 +287,7 @@ fn role_value(row: &Row, role: &str) -> QVariant {
     }
 }
 
-fn rule_name(rule: AppRule) -> &'static str {
+pub(crate) fn rule_name(rule: AppRule) -> &'static str {
     match rule {
         AppRule::Show => "show",
         AppRule::Quiet => "quiet",
@@ -297,7 +296,7 @@ fn rule_name(rule: AppRule) -> &'static str {
 }
 
 /// The apps list for Settings (see the `apps` property).
-fn apps_json(s: &AppState) -> String {
+pub(crate) fn apps_json(s: &AppState) -> String {
     let mut apps: Vec<(&String, &String)> = s.app_names.iter().collect();
     apps.sort_by_key(|(app, name)| (name.to_lowercase(), (*app).clone()));
     serde_json::Value::from(
@@ -343,7 +342,7 @@ fn make_row(
 /// Builds display rows from [`AppState`], keeping Live Updates ungrouped at the top
 /// and grouping regular notifications by `(device, app)` in order of each app's
 /// newest notification. Collapsed groups emit only their lead item (`group_index == 0`).
-fn build_rows(s: &AppState) -> Vec<Row> {
+pub(crate) fn build_rows(s: &AppState) -> Vec<Row> {
     let visible: Vec<&NotificationView> =
         s.notifications.iter().filter(|view| s.app_rule(&view.notification.app) != AppRule::Hidden).collect();
     let mut rows = Vec::with_capacity(visible.len());
@@ -483,84 +482,15 @@ impl qobject::NotificationList {
     }
 
     pub fn dismiss(&self, device: &QString, key: &QString) {
-        let dev_str = String::from(device);
-        let key_str = String::from(key);
-        if let Ok(dev_id) = dev_str.parse::<DeviceId>() {
-            let found = core_host::host().hub.read(|s| {
-                s.notifications.iter().find(|n| n.device == dev_id && n.notification.key == key_str).cloned()
-            });
-            // The phone won't dismiss these, so it would only come back.
-            if found.as_ref().is_some_and(|v| v.notification.ongoing) {
-                return;
-            }
-            if let Some(view) = found {
-                let label = if view.notification.app_name.is_empty() {
-                    tr!("Notifications", "Notification dismissed")
-                } else {
-                    tr!("Notifications", "Dismissed from %1", view.notification.app_name)
-                };
-                core_host::host().hub.update(|s| s.record_dismissed(vec![view], label));
-            }
-        }
-        crate::notifications::dismiss(&dev_str, key_str);
+        crate::notifications::dismiss_with_undo(&String::from(device), String::from(key));
     }
 
     pub fn dismiss_group(&self, device: &QString, app: &QString) {
-        let dev_str = String::from(device);
-        let app_str = String::from(app);
-        let Ok(dev_id) = dev_str.parse::<DeviceId>() else { return };
-        let views: Vec<NotificationView> = core_host::host().hub.read(|s| {
-            s.notifications
-                .iter()
-                .filter(|n| n.device == dev_id && n.notification.app == app_str && !n.notification.ongoing)
-                .cloned()
-                .collect()
-        });
-        if views.is_empty() {
-            return;
-        }
-        let app_name = views[0].notification.app_name.clone();
-        let count = views.len();
-        let label = if count == 1 {
-            tr!("Notifications", "Dismissed from %1", app_name)
-        } else {
-            tr!("Notifications", "Dismissed %1 from %2", count, app_name)
-        };
-        let keys: Vec<String> = views.iter().map(|v| v.notification.key.clone()).collect();
-        core_host::host().hub.update(|s| s.record_dismissed(views, label));
-        for key in keys {
-            crate::notifications::dismiss(&dev_str, key);
-        }
+        crate::notifications::dismiss_app_group(&String::from(device), &String::from(app));
     }
 
     pub fn dismiss_all(&self, device: &QString) {
-        let dev_str = String::from(device);
-        let Ok(dev_id) = dev_str.parse::<DeviceId>() else { return };
-        let views: Vec<NotificationView> = core_host::host().hub.read(|s| {
-            s.notifications
-                .iter()
-                .filter(|n| {
-                    n.device == dev_id
-                        && !n.notification.ongoing
-                        && s.app_rule(&n.notification.app) != AppRule::Hidden
-                })
-                .cloned()
-                .collect()
-        });
-        if views.is_empty() {
-            return;
-        }
-        let count = views.len();
-        let label = if count == 1 {
-            tr!("Notifications", "Notification dismissed")
-        } else {
-            tr!("Notifications", "Dismissed %1 notifications", count)
-        };
-        let keys: Vec<String> = views.iter().map(|v| v.notification.key.clone()).collect();
-        core_host::host().hub.update(|s| s.record_dismissed(views, label));
-        for key in keys {
-            crate::notifications::dismiss(&dev_str, key);
-        }
+        crate::notifications::dismiss_all_for(&String::from(device));
     }
 
     pub fn toggle_group(&self, app: &QString) {

@@ -45,6 +45,8 @@ pub const TOKEN_FILE_NAME: &str = "api-token.json";
 
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
+/// A whole request, including a feed request that waits for news (at most 55 s).
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(65);
 
 /// Contents of `<data_dir>/api-token.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,7 +243,7 @@ pub async fn start_on_port(port: u16, token: String) -> std::io::Result<(SocketA
                     let expected_token = token.clone();
                     tokio::spawn(async move {
                         let _ = tokio::time::timeout(
-                            IO_TIMEOUT,
+                            CONNECTION_TIMEOUT,
                             handle_connection(stream, &expected_token),
                         )
                         .await;
@@ -389,7 +391,11 @@ async fn write_json_response(
 }
 
 async fn handle_connection(mut stream: TcpStream, expected_token: &str) -> std::io::Result<()> {
-    let Some(req) = read_http_request(&mut stream).await? else {
+    // Reading the request stays under the short timeout; only answering may take long (a feed waiting for news).
+    let Ok(read) = tokio::time::timeout(IO_TIMEOUT, read_http_request(&mut stream)).await else {
+        return Ok(());
+    };
+    let Some(req) = read? else {
         return Ok(());
     };
 
@@ -506,6 +512,11 @@ fn resolve_target_device(requested: Option<&str>) -> Option<DeviceId> {
 }
 
 async fn route_request(req: HttpRequest) -> (u16, &'static str, Value) {
+    if let Some(reply) =
+        crate::notifications_api::route(req.method.as_str(), req.path.as_str(), &req.query, &req.body).await
+    {
+        return reply;
+    }
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/v1/devices") => handle_get_devices(),
         ("POST", "/v1/send") => handle_post_send(&req.body).await,

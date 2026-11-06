@@ -249,6 +249,55 @@ separated by newlines) or the link.
 
 ---
 
+### Notifications
+
+Everything the app's Notifications section does. The rows come from the same builder as the app's own feed, so
+groups, per-app rules and the count match the window.
+
+`GET /v1/notifications[?device=<id>&since=<rev>&wait=<seconds>]` returns the live feed:
+
+```json
+{
+  "ok": true, "rev": 42, "count": 3, "undoLabel": "Dismissed from WhatsApp", "historyEnabled": true,
+  "online": { "<device id>": true },
+  "items": [{
+    "deviceId": "a1b2c3...", "deviceName": "Pixel 9 Pro", "key": "0|com.whatsapp|1|null|10123",
+    "app": "com.whatsapp", "appName": "WhatsApp", "title": "Alice", "text": "Hi", "sub": "",
+    "when": 1730000000000, "iconUrl": "file:///...", "imageUrl": "",
+    "actions": [{ "id": "mark_read", "title": "Mark as read" }],
+    "replyAction": "reply", "replyLabel": "Reply", "silent": false, "ongoing": false,
+    "replies": [{ "text": "On my way", "pending": false }], "otpCode": "", "live": null, "conversation": null,
+    "groupCount": 1, "groupIndex": 0, "groupExpanded": false, "groupSummary": ""
+  }]
+}
+```
+
+`rev` goes up with every change. Pass `since=<rev>&wait=<seconds>` (at most 55) to wait for news: the call returns as soon
+as `rev` changes, or after `wait` seconds with the same feed. `count` is what the app's header shows (each group counts all
+its members). Hidden apps are left out. `iconUrl` and `imageUrl` are `file://` URLs on this PC.
+
+| Request | Body | Does |
+|---|---|---|
+| `POST /v1/notifications/action` | `{ "key", "action", "reply"?, "device"? }` | Runs an action on the phone; with `reply` it sends the text through the app's reply action. |
+| `POST /v1/notifications/dismiss` | `{ "key", "device"? }` | Dismisses one (Undo is offered). Ongoing ones stay. |
+| `POST /v1/notifications/dismiss-group` | `{ "app", "device"? }` | Dismisses all of one app's. |
+| `POST /v1/notifications/clear` | `{ "device"? }` | Clear all. |
+| `POST /v1/notifications/undo` | | Restores what was dismissed last. |
+| `POST /v1/notifications/undo/clear` | | Forgets the Undo offer. |
+| `POST /v1/notifications/toggle-group` | `{ "app" }` | Expands or collapses an app's group. |
+| `GET /v1/notifications/history` | `?q=<text>&limit=<n>&device=<id>` | Dismissed notifications of the last 24 hours, newest first. |
+| `POST /v1/notifications/history/clear` | | Clears the history. |
+| `GET /v1/notifications/rules` | | `{ "historyEnabled", "apps": [{ "app", "name", "icon", "rule" }] }` |
+| `POST /v1/notifications/rules` | `{ "app", "rule": "show"\|"quiet"\|"hidden" }` and/or `{ "historyEnabled" }` | Sets an app's rule, and/or turns history on or off. |
+| `POST /v1/notifications/copy-code` | `{ "code" }` | Copies a one-time code to the PC clipboard. |
+| `POST /v1/notifications/open-app` | `{ "app", "appName"?, "device"? }` | Opens the phone's app in a window on this PC (app windows). |
+
+`device` defaults to the notification's phone, or else the first online phone. Errors: `400` with `invalid_json`,
+`missing_key`, `missing_action`, `missing_app`, `empty_reply`, `invalid_rule`, `invalid_app`, `missing_code` or
+`nothing_to_change`; `404` with `no_device`.
+
+---
+
 ## 4. Examples
 
 ### PowerShell

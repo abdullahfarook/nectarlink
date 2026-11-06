@@ -18,7 +18,7 @@ use nectarlink_core::{DeviceId, Error, NodeEvent, Notification};
 
 use crate::{
     core_host, icons,
-    state::{AppRule, Changes},
+    state::{AppRule, Changes, NotificationView},
     win::toast::{self, Toast, ToastEvent},
 };
 
@@ -566,6 +566,86 @@ pub fn dismiss(device: &str, key: String) {
             report(&e);
         }
     });
+}
+
+/// Dismisses one notification the way the feed's X does: the phone is told,
+/// and Undo is offered. `ongoing` ones stay (the phone won't dismiss them).
+pub fn dismiss_with_undo(device: &str, key: String) {
+    if let Ok(dev_id) = device.parse::<DeviceId>() {
+        let found = core_host::host().hub.read(|s| {
+            s.notifications.iter().find(|n| n.device == dev_id && n.notification.key == key).cloned()
+        });
+        // The phone won't dismiss these, so it would only come back.
+        if found.as_ref().is_some_and(|v| v.notification.ongoing) {
+            return;
+        }
+        if let Some(view) = found {
+            let label = if view.notification.app_name.is_empty() {
+                tr!("Notifications", "Notification dismissed")
+            } else {
+                tr!("Notifications", "Dismissed from %1", view.notification.app_name)
+            };
+            core_host::host().hub.update(|s| s.record_dismissed(vec![view], label));
+        }
+    }
+    dismiss(device, key);
+}
+
+/// Dismisses every notification of one app (with Undo).
+pub fn dismiss_app_group(device: &str, app: &str) {
+    let Ok(dev_id) = device.parse::<DeviceId>() else { return };
+    let views: Vec<NotificationView> = core_host::host().hub.read(|s| {
+        s.notifications
+            .iter()
+            .filter(|n| n.device == dev_id && n.notification.app == app && !n.notification.ongoing)
+            .cloned()
+            .collect()
+    });
+    if views.is_empty() {
+        return;
+    }
+    let app_name = views[0].notification.app_name.clone();
+    let count = views.len();
+    let label = if count == 1 {
+        tr!("Notifications", "Dismissed from %1", app_name)
+    } else {
+        tr!("Notifications", "Dismissed %1 from %2", count, app_name)
+    };
+    let keys: Vec<String> = views.iter().map(|v| v.notification.key.clone()).collect();
+    core_host::host().hub.update(|s| s.record_dismissed(views, label));
+    for key in keys {
+        dismiss(device, key);
+    }
+}
+
+/// Dismisses every notification of a phone that can be dismissed ("Clear all", with Undo).
+pub fn dismiss_all_for(device: &str) {
+    let Ok(dev_id) = device.parse::<DeviceId>() else { return };
+    let views: Vec<NotificationView> = core_host::host().hub.read(|s| {
+        s.notifications
+            .iter()
+            .filter(|n| {
+                n.device == dev_id
+                    && !n.notification.ongoing
+                    && s.app_rule(&n.notification.app) != AppRule::Hidden
+            })
+            .cloned()
+            .collect()
+    });
+    if views.is_empty() {
+        return;
+    }
+    let count = views.len();
+    let label = if count == 1 {
+        tr!("Notifications", "Notification dismissed")
+    } else {
+        tr!("Notifications", "Dismissed %1 notifications", count)
+    };
+    let keys: Vec<String> = views.iter().map(|v| v.notification.key.clone()).collect();
+    core_host::host().hub.update(|s| s.record_dismissed(views, label));
+    for key in keys {
+        dismiss(device, key);
+    }
 }
 
 /// Runs a notification's action on the phone (`reply` for a reply action).

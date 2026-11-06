@@ -35,6 +35,7 @@ mod messages;
 mod mirror;
 mod notification_store;
 mod notifications;
+mod notifications_api;
 mod obs;
 mod palette;
 mod pc_audio_stream;
